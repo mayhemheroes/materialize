@@ -12,6 +12,7 @@ use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use mz_config::SystemParameterFrontend;
 use serde::Deserialize;
 
 use mz_build_info::BuildInfo;
@@ -56,6 +57,10 @@ pub struct Config<'a, S> {
     pub secrets_reader: Arc<dyn SecretsReader>,
     /// IP Addresses which will be used for egress.
     pub egress_ips: Vec<Ipv4Addr>,
+    /// A optional frontend used to pull system parameters for initial sync in
+    /// Catalog::open. A `None` value indicates that the initial sync should be
+    /// skipped.
+    pub system_parameter_frontend: Option<Arc<SystemParameterFrontend>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

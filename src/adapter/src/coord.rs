@@ -78,6 +78,7 @@ use chrono::{DateTime, Utc};
 use derivative::Derivative;
 use futures::StreamExt;
 use itertools::Itertools;
+use mz_config::SystemParameterFrontend;
 use mz_orchestrator::ServiceProcessMetrics;
 use mz_ore::task::spawn;
 use rand::seq::SliceRandom;
@@ -253,6 +254,7 @@ pub struct Config<S> {
     pub storage_usage_collection_interval: Duration,
     pub segment_api_key: Option<String>,
     pub egress_ips: Vec<Ipv4Addr>,
+    pub system_parameter_frontend: Option<Arc<SystemParameterFrontend>>,
     pub consolidations_tx: mpsc::UnboundedSender<Vec<mz_stash::Id>>,
     pub consolidations_rx: mpsc::UnboundedReceiver<Vec<mz_stash::Id>>,
 }
@@ -1039,6 +1041,7 @@ pub async fn serve<S: Append + 'static>(
         egress_ips,
         consolidations_tx,
         consolidations_rx,
+        system_parameter_frontend,
     }: Config<S>,
 ) -> Result<(Handle, Client), AdapterError> {
     info!("coordinator init: beginning");
@@ -1079,6 +1082,7 @@ pub async fn serve<S: Append + 'static>(
             availability_zones,
             secrets_reader: secrets_controller.reader(),
             egress_ips,
+            system_parameter_frontend,
         })
         .await?;
     let session_id = catalog.config().session_id;

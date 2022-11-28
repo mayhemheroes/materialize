@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context};
+use mz_config::SystemParameterFrontend;
 use mz_stash::Stash;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod, SslVerifyMode};
 use tokio::sync::{mpsc, oneshot};
@@ -119,6 +120,10 @@ pub struct Config {
     pub segment_api_key: Option<String>,
     /// IP Addresses which will be used for egress.
     pub egress_ips: Vec<Ipv4Addr>,
+    /// A optional frontend used to pull system parameters for initial sync in
+    /// Catalog::open. A `None` value indicates that the initial sync should be
+    /// skipped.
+    pub system_parameter_frontend: Option<Arc<SystemParameterFrontend>>,
 
     // === Tracing options. ===
     /// The metrics registry to use.
@@ -305,6 +310,7 @@ pub async fn serve(config: Config) -> Result<Server, anyhow::Error> {
         storage_usage_collection_interval: config.storage_usage_collection_interval,
         segment_api_key: config.segment_api_key,
         egress_ips: config.egress_ips,
+        system_parameter_frontend: config.system_parameter_frontend,
         consolidations_tx,
         consolidations_rx,
     })

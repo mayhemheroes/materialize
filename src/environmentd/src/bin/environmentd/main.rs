@@ -418,6 +418,20 @@ pub struct Args {
         use_delimiter = true
     )]
     announce_egress_ip: Vec<Ipv4Addr>,
+    /// An SDK key for LaunchDarkly.
+    ///
+    /// Setting this will enable synchronization of LaunchDarkly features with
+    /// system configuration parameters.
+    #[clap(long, env = "LAUNCHDARKLY_SDK_KEY")]
+    launchdarkly_sdk_key: Option<String>,
+    /// The interval in seconds at which to synchronize system parameter values.
+    #[clap(
+        long,
+        env = "CONFIG_SYNC_LOOP_INTERVAL",
+        parse(try_from_str = humantime::parse_duration),
+        default_value = "15s"
+    )]
+    config_sync_loop_interval: Duration,
 
     // === Tracing options. ===
     #[clap(flatten)]
@@ -731,6 +745,25 @@ max log level: {max_log_level}",
         }
     }
 
+    // Initialize the system parameter frontend if `launchdarkly_sdk_key` is set.
+    let system_parameter_frontend = args
+        .launchdarkly_sdk_key
+        .as_ref()
+        .map(|ld_sdk_key| {
+            let ld_user_key = args
+                .frontegg_tenant
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "anonymous-dev@materialize.com".to_string());
+            mz_config::SystemParameterFrontend::new(ld_sdk_key.as_str(), ld_user_key.as_str())
+        })
+        .transpose()
+        .unwrap_or_else(|e| {
+            eprintln!("Cannot initialize system parameter frontend: {:?}", e);
+            None
+        })
+        .map(Arc::new);
+
     let server = runtime.block_on(mz_environmentd::serve(mz_environmentd::Config {
         sql_listen_addr: args.sql_listen_addr,
         http_listen_addr: args.http_listen_addr,
@@ -768,6 +801,7 @@ max log level: {max_log_level}",
         storage_usage_collection_interval: args.storage_usage_collection_interval_sec,
         segment_api_key: args.segment_api_key,
         egress_ips: args.announce_egress_ip,
+        system_parameter_frontend: system_parameter_frontend.clone(),
     }))?;
 
     metrics.start_time_environmentd.set(
@@ -792,6 +826,33 @@ max log level: {max_log_level}",
         " Internal HTTP address: {}",
         server.internal_http_local_addr()
     );
+
+    // Initialize the system parameter frontend and backend if
+    // `launchdarkly_sdk_key` is set.
+    let system_parameter_backend = args
+        .launchdarkly_sdk_key
+        .as_ref()
+        .map(|_ld_sdk_key| {
+            runtime.block_on(mz_config::SystemParameterBackend::new(
+                args.internal_sql_listen_addr,
+            ))
+        })
+        .transpose()
+        .unwrap_or_else(|e| {
+            eprintln!("Cannot initialize system parameter backend: {:?}", e);
+            None
+        });
+
+    // If system_parameter_frontend is present, start the system_parameter_sync loop.
+    if let (Some(system_parameter_frontend), Some(system_parameter_backend)) =
+        (system_parameter_frontend, system_parameter_backend)
+    {
+        runtime.spawn(mz_config::system_parameter_sync(
+            system_parameter_frontend,
+            system_parameter_backend,
+            args.config_sync_loop_interval,
+        ));
+    }
 
     // Block forever.
     loop {
